@@ -1,0 +1,16 @@
+[project]
+name = "agent-ui-backend"
+version = "0.1.0"
+description = "Backend for kagent Agent UI"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "httpx>=0.28",
+    "sse-starlette>=2.2",
+    "pydantic-settings>=2.7",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
