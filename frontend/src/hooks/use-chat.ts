@@ -1,6 +1,11 @@
 import { useCallback, useRef, useState } from "react";
-import { sendMessage, streamMessage } from "@/api/chat";
+import { streamMessage } from "@/api/chat";
 import type { ChatMessage, HistoryMessage, StreamState, UsageMetadata } from "@/types";
+
+export interface ChatSessionState {
+  contextId: string | undefined;
+  messages: ChatMessage[];
+}
 
 export function useChat(agentName: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -9,6 +14,19 @@ export function useChat(agentName: string) {
 
   const setContextId = useCallback((id: string | undefined) => {
     contextIdRef.current = id;
+  }, []);
+
+  /** Snapshot current state so it can be saved externally before switching agents */
+  const getSessionState = useCallback((): ChatSessionState => ({
+    contextId: contextIdRef.current,
+    messages,
+  }), [messages]);
+
+  /** Restore a previously saved session */
+  const restoreSession = useCallback((state: ChatSessionState) => {
+    contextIdRef.current = state.contextId;
+    setMessages(state.messages);
+    setStreamState("idle");
   }, []);
 
   const clearMessages = useCallback(() => {
@@ -34,12 +52,14 @@ export function useChat(agentName: string) {
         // Start streaming for live status updates
         let artifactText = "";
         let taskContextId = contextIdRef.current;
+        let history: HistoryMessage[] = [];
+        let usage: UsageMetadata | null = null;
 
         for await (const event of streamMessage(agentName, text, contextIdRef.current)) {
-          const result = event.result as Record<string, unknown> | undefined;
-          if (!result) continue;
-
-          const kind = result.kind as string;
+          // Handle both JSON-RPC wrapped (event.result) and unwrapped events
+          const result = (event.result ?? event) as Record<string, unknown>;
+          const kind = result.kind as string | undefined;
+          if (!kind) continue;
 
           if (kind === "status-update") {
             const status = result.status as { state: string } | undefined;
@@ -51,7 +71,7 @@ export function useChat(agentName: string) {
             }
           }
 
-          if (kind === "artifact") {
+          if (kind === "artifact" || kind === "artifact-update") {
             const artifact = result.artifact as {
               parts?: { kind: string; text?: string }[];
             };
@@ -66,6 +86,14 @@ export function useChat(agentName: string) {
               taskContextId = result.contextId as string;
             }
           }
+
+          if (kind === "metadata") {
+            const rawHistory = result.history as HistoryMessage[] | undefined;
+            if (rawHistory) history = rawHistory;
+            const meta = result.metadata as Record<string, unknown> | undefined;
+            const usageRaw = meta?.kagent_usage_metadata as UsageMetadata | undefined;
+            if (usageRaw) usage = usageRaw;
+          }
         }
 
         // Update contextId for multi-turn
@@ -73,36 +101,11 @@ export function useChat(agentName: string) {
           contextIdRef.current = taskContextId;
         }
 
-        // Now fetch full response (with history + usage) via sync call
-        let history: HistoryMessage[] = [];
-        let usage: UsageMetadata | null = null;
-
-        try {
-          const full = await sendMessage(agentName, text, contextIdRef.current);
-          history = full.history;
-          usage = full.usage;
-          if (full.context_id) {
-            contextIdRef.current = full.context_id;
-          }
-          // Use the artifact text from sync if streaming didn't capture it
-          if (!artifactText && full.artifacts.length > 0) {
-            for (const a of full.artifacts) {
-              for (const p of a.parts) {
-                if (p.kind === "text" && p.text) {
-                  artifactText += p.text;
-                }
-              }
-            }
-          }
-        } catch {
-          // sync fetch failed, use streaming artifact text
-        }
-
         const agentMsg: ChatMessage = {
           id: crypto.randomUUID(),
           role: "agent",
           text: artifactText || "(no response)",
-          history,
+          history: history.length > 0 ? history : undefined,
           usage,
           timestamp: new Date(),
         };
@@ -131,5 +134,7 @@ export function useChat(agentName: string) {
     contextId: contextIdRef.current,
     setContextId,
     clearMessages,
+    getSessionState,
+    restoreSession,
   };
 }

@@ -1,0 +1,19 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      KAGENT_CONTROLLER_URL: http://host.docker.internal:8083
+      KAGENT_AGENT_URL_TEMPLATE: http://host.docker.internal:9090
+      CORS_ORIGINS: '["http://localhost:3000"]'
+      AGENT_CACHE_TTL_SECONDS: "60"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend

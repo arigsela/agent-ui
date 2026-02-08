@@ -80,3 +80,19 @@ class ChatResponse(BaseModel):
     artifacts: list[Artifact] = []
     history: list[HistoryMessage] = []
     usage: UsageMetadata | None = None
+
+
+# --- Agent Creation ---
+
+class CreateAgentRequest(BaseModel):
+    name: str
+    namespace: str = "kagent"
+    description: str = ""
+    systemMessage: str = ""
+    modelConfig: str = "default-model-config"
+    stream: bool = True
+
+
+class CreateAgentResponse(BaseModel):
+    name: str
+    namespace: str

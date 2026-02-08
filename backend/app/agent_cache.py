@@ -75,12 +75,16 @@ class AgentCache:
             logger.exception("Failed to refresh agent cache")
 
     async def _refresh_cards(self, agents: list[AgentInfo]) -> None:
+        fetched: dict[str, AgentCard] = {}
         async with httpx.AsyncClient(timeout=10) as client:
             for agent in agents:
+                base = settings.kagent_agent_url_template.format(name=agent.name)
+                url = f"{base}/.well-known/agent-card.json"
+                # Deduplicate: if same URL already fetched, reuse the card
+                if url in fetched:
+                    self._cards[agent.name] = fetched[url]
+                    continue
                 try:
-                    url = f"{settings.kagent_agent_base_url}/.well-known/agent.json"
-                    # In-cluster, each agent has its own service URL.
-                    # With port-forward (local dev), we use the single base URL.
                     resp = await client.get(url)
                     resp.raise_for_status()
                     card_data = resp.json()
@@ -95,9 +99,14 @@ class AgentCache:
                         skills=skills,
                         capabilities=caps,
                     )
+                    fetched[url] = card
                     self._cards[agent.name] = card
                 except Exception:
                     logger.warning("Failed to fetch card for %s", agent.name)
+
+
+    async def force_refresh(self) -> None:
+        await self._refresh()
 
 
 agent_cache = AgentCache()

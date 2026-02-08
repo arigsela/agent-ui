@@ -83,3 +83,19 @@ export interface SessionInfo {
   createdAt: string;
   lastMessage?: string;
 }
+
+// --- Agent Creation ---
+
+export interface CreateAgentRequest {
+  name: string;
+  namespace: string;
+  description: string;
+  systemMessage: string;
+  modelConfig: string;
+  stream: boolean;
+}
+
+export interface CreateAgentResponse {
+  name: string;
+  namespace: string;
+}
