@@ -54,6 +54,8 @@ export function useChat(agentName: string) {
         let taskContextId = contextIdRef.current;
         let history: HistoryMessage[] = [];
         let usage: UsageMetadata | null = null;
+        // Track unique usage entries to avoid double-counting duplicates in the stream
+        const seenUsageKeys = new Set<string>();
 
         for await (const event of streamMessage(agentName, text, contextIdRef.current)) {
           // Handle both JSON-RPC wrapped (event.result) and unwrapped events
@@ -68,6 +70,26 @@ export function useChat(agentName: string) {
             }
             if (result.contextId) {
               taskContextId = result.contextId as string;
+            }
+            // kagent emits usage metadata on status-update events (not on metadata events).
+            // The orchestrator can have multiple LLM calls per turn, and the same usage
+            // value may appear in multiple events, so we accumulate unique entries.
+            const meta = result.metadata as Record<string, unknown> | undefined;
+            const usageRaw = meta?.kagent_usage_metadata as UsageMetadata | undefined;
+            if (usageRaw) {
+              const key = `${usageRaw.promptTokenCount}:${usageRaw.candidatesTokenCount}:${usageRaw.totalTokenCount}`;
+              if (!seenUsageKeys.has(key)) {
+                seenUsageKeys.add(key);
+                if (!usage) {
+                  usage = { ...usageRaw };
+                } else {
+                  usage = {
+                    promptTokenCount: usage.promptTokenCount + usageRaw.promptTokenCount,
+                    candidatesTokenCount: usage.candidatesTokenCount + usageRaw.candidatesTokenCount,
+                    totalTokenCount: usage.totalTokenCount + usageRaw.totalTokenCount,
+                  };
+                }
+              }
             }
           }
 
